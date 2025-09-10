@@ -1,5 +1,4 @@
 import pandas as pd
-
 def load_data(filepath):
     df = pd.read_csv(filepath)
     df = df.drop(columns=['id', 'Unnamed: 0'], errors='ignore')
