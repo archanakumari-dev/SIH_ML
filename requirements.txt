@@ -11,3 +11,6 @@ catboost
 xgboost
 ipykernel
 biopython
+torch 
+transformers 
+sentencepiece

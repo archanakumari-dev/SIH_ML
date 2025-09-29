@@ -1,114 +1,120 @@
 import streamlit as st
 import pandas as pd
-from Bio import SeqIO
-import joblib
-from sklearn.cluster import DBSCAN
-from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
+from transformers import AutoTokenizer, AutoModel
+import torch
 import numpy as np
+from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
 
+class DNABERTEmbedder:
+    def __init__(self, model_name="zhihan1996/DNA_bert_6", device=None):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name).to(self.device)
 
-# Load pre-trained TF-IDF vectorizer (pickle) used in your project
-@st.cache_resource(show_spinner=True)
-def load_vectorizer():
-    return joblib.load('tfidf_vectorizer.pkl')
+    def kmerize(self, sequence, k=6):
+        return " ".join([sequence[i:i+k] for i in range(len(sequence)-k+1)])
 
+    def embed(self, sequence, max_len=512, stride=100):
+        kmer_seq = self.kmerize(sequence)
+        tokens = kmer_seq.split()
+        all_embeddings = []
 
-# Function to create k-mers from sequence
-def get_kmer(sequence, k=7):
-    return " ".join([sequence[i:i+k] for i in range(len(sequence) - k + 1)])
+        special_tokens_count = self.tokenizer.num_special_tokens_to_add(pair=False)
+        max_len_adjusted = max_len - special_tokens_count
 
+        for start in range(0, len(tokens), stride):
+            chunk_tokens = tokens[start:start + max_len_adjusted]
+            if not chunk_tokens:
+                break
+            chunk_seq = " ".join(chunk_tokens)
+            inputs = self.tokenizer(chunk_seq, return_tensors="pt", truncation=True, max_length=max_len)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                output = self.model(**inputs)[0].mean(dim=1)
+            all_embeddings.append(output.cpu().numpy().flatten())
 
-# DBSCAN clustering function (with cosine metric)
-def cluster_sequences(X):
-    dbscan = DBSCAN(eps=0.5, min_samples=5, metric='cosine')
-    return dbscan.fit_predict(X)
-
-
-# Function to generate novel taxa cards with confidence and similarity
-def get_novel_species_for_display(sequences, cluster_labels, X):
-    novel_indices = np.where(cluster_labels == -1)[0]
-    known_indices = np.where(cluster_labels != -1)[0]
-    known_vectors = X[known_indices]
-    novel_vectors = X[novel_indices]
-
-    if len(known_indices) > 0 and len(novel_indices) > 0:
-        sim_matrix = cosine_similarity(novel_vectors, known_vectors)
-        similarity_scores = sim_matrix.max(axis=1) * 100  # convert to %
-    else:
-        similarity_scores = np.zeros(len(novel_indices))
-
-    confidence_scores = (100 - similarity_scores).clip(80, 99)  # higher confidence for lower similarity
-
-    cards = []
-    for i, idx in enumerate(novel_indices):
-        cards.append({
-            "id": f"NS{str(idx+1).zfill(3)}",
-            "sequence": sequences[idx],
-            "confidence": int(confidence_scores[i]),
-            "similarity": int(similarity_scores[i])
-        })
-    return cards
-
-
-# Main app UI and logic
-def main():
-    st.title("eDNA Novel Taxa Detector")
-    st.write("""
-        Upload your DNA sequences (CSV with 'sequence' column or FASTA format).
-        The app will cluster sequences and show DNA sequences identified as novel taxa (anomalies).
-    """)
-
-    uploaded_file = st.file_uploader("Upload CSV or FASTA", type=['csv', 'fasta', 'fa'])
-
-    if uploaded_file:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-            if 'sequence' not in df.columns:
-                st.error("CSV must contain a 'sequence' column.")
-                return
-            sequences = df['sequence'].dropna().tolist()
+        if all_embeddings:
+            return np.mean(all_embeddings, axis=0)
         else:
-            # Parse FASTA sequences
-            sequences = [str(record.seq) for record in SeqIO.parse(uploaded_file, 'fasta')]
-            if not sequences:
-                st.error("No sequences found in FASTA file.")
-                return
+            return np.zeros(self.model.config.hidden_size)
 
+def deep_embed_sequences(sequences, embedder):
+    embeddings = []
+    batch_size = 8
+    for i in range(0, len(sequences), batch_size):
+        batch = sequences[i:i + batch_size]
+        batch_embs = [embedder.embed(seq) for seq in batch]
+        embeddings.extend(batch_embs)
+    return np.array(embeddings)
+
+def plot_pie_chart(num_novel, num_clustered):
+    labels = ['Novel Taxa', 'Clustered Taxa']
+    sizes = [num_novel, num_clustered]
+    colors = ['#1976D2', '#BDBDBD']
+    explode = (0.08, 0)
+    fig, ax = plt.subplots()
+    wedges, texts, autotexts = ax.pie(
+        sizes, labels=labels,
+        autopct='%1.1f%%', startangle=90,
+        colors=colors, explode=explode,
+        shadow=True,
+        wedgeprops={'edgecolor': 'black', 'linewidth': 2},
+        textprops={'color': 'navy', 'weight': 'bold'}
+    )
+    ax.set_title("Novel vs Clustered Taxa", fontsize=16)
+    plt.legend(wedges, labels, loc="upper right", fontsize=13)
+    st.pyplot(fig)
+    plt.close()
+
+def main():
+    st.title("eDNA Novel Taxa Detector (DNABERT Enhanced)")
+    st.write("Upload DNA sequences (CSV with 'sequence' column). The app clusters sequences and shows novel taxa with their closest known species.")
+
+    uploaded_file = st.file_uploader("Upload CSV with 'sequence' column", type='csv')
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        sequences = df['sequence'].dropna().tolist()
         st.info(f"Loaded {len(sequences)} sequences.")
 
-        # Generate k-mers
-        kmers = [get_kmer(seq) for seq in sequences]
+        embedder = DNABERTEmbedder()
+        st.info("Generating DNABERT embeddings (this may take a while)...")
+        X = deep_embed_sequences(sequences, embedder)
 
-        # Load vectorizer and transform
-        tfidf = load_vectorizer()
-        X = tfidf.transform(kmers)
+        st.info("Clustering with DBSCAN...")
+        cluster_labels = DBSCAN(eps=0.5, min_samples=5, metric='cosine').fit_predict(X)
 
-        # Cluster with DBSCAN
-        cluster_labels = cluster_sequences(X)
+        df['cluster'] = cluster_labels
 
-        # Get novel species cards with confidence and similarity
-        novel_species_cards = get_novel_species_for_display(sequences, cluster_labels, X)
+        novel_idxs = np.where(cluster_labels == -1)[0]
+        known_idxs = np.where(cluster_labels != -1)[0]
+        novel_embs = X[novel_idxs]
+        known_embs = X[known_idxs]
 
-        # Display total number of novel taxa detected
-        num_novel_taxa = len(novel_species_cards)
-        st.subheader("Novel Species Discovery")
-        st.metric(label="Total novel taxa detected", value=num_novel_taxa)
+        st.subheader("Pie Chart of Novel vs Clustered Taxa")
+        plot_pie_chart(len(novel_idxs), len(known_idxs))
 
-        if novel_species_cards:
-            cols = st.columns(2)
-            for i, card in enumerate(novel_species_cards):
-                with cols[i % 2]:
-                    st.markdown(f"**{card['id']}**")
-                    st.write(f"Sequence: {card['sequence'][:50]}...")  # show first 50 bases
-                    st.write(f"Confidence: {card['confidence']}%")
-                    st.progress(card["confidence"] / 100)
-                    st.write(f"Similarity to known species: {card['similarity']}%")
-                    st.progress(card["similarity"] / 100)
-        else:
-            st.write("No novel taxa detected.")
+        st.subheader("Novel Taxa with Closest Known Species")
+        cols = st.columns(2)
+        for i, idx in enumerate(novel_idxs):
+            if len(known_idxs) > 0:
+                sims = cosine_similarity(novel_embs[i].reshape(1, -1), known_embs)
+                best_idx = np.argmax(sims)
+                closest_seq = sequences[known_idxs[best_idx]]
+                sim_score = sims[0, best_idx]
+            else:
+                closest_seq = "N/A"
+                sim_score = 0.0
 
+            with cols[i % 2]:
+                st.markdown(f"**Novel Taxon {idx+1}**")
+                with st.expander("Show Full Novel Sequence"):
+                    st.text(sequences[idx])
+                st.write(f"Closest Known Species Sequence (first 100 bp): {closest_seq[:100]}...")
+                st.write(f"Similarity Score: {sim_score:.3f}")
+
+        st.write(f"Total novel taxa detected: {len(novel_idxs)}")
 
 if __name__ == "__main__":
     main()
