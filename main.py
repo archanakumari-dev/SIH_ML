@@ -20,6 +20,7 @@ def main():
     
     # 1. Load the Data
     try:
+        # NOTE: This load_data MUST load the 'species' column from 'updated_plasmids.csv'
         df = load_data('updated_plasmids.csv')
     except FileNotFoundError:
         print("FATAL ERROR: 'updated_plasmids.csv' not found. Cannot proceed.")
@@ -49,6 +50,9 @@ def main():
         # DBSCAN and metrics are fast operations on the feature matrix X
         cluster_labels = run_dbscan(X)
         df['clusters'] = cluster_labels
+        
+        # The get_novel_species_for_display function (from metrices.py) now
+        # internally retrieves and includes 'closest_known_species'
         novel_species_cards = get_novel_species_for_display(df, cluster_labels, X)
         
         end_time = time.time()
@@ -63,7 +67,9 @@ def main():
         if novel_count > 0:
             print("\nTop Novel Taxa Summary:")
             for i, card in enumerate(novel_species_cards[:3]):
-                print(f"  {i+1}. ID: {card['id']}, Novelty Confidence: {card['confidence']}%, Closest Similarity: {card['similarity']}%")
+                # --- MODIFIED PRINT STATEMENT ---
+                print(f"  {i+1}. ID: {card['id']}, Novelty Confidence: {card['confidence']}%, Closest Similarity: {card['similarity']}%, ClosEST KNOWN SPECIES: {card['closest_known_species']}")
+                # --- END MODIFIED PRINT STATEMENT ---
         else:
             print("No novel species found.")
             
