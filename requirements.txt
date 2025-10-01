@@ -1,0 +1,16 @@
+numpy
+pandas
+matplotlib
+seaborn
+flask
+memory_profiler
+streamlit
+scikit-learn
+plotly 
+catboost
+xgboost
+ipykernel
+biopython
+torch 
+transformers 
+sentencepiece
