@@ -83,8 +83,8 @@ def get_novel_species_for_display(df, cluster_labels, X):
             # --- NEW OUTPUT FIELD ---
             "closest_known_species": closest_species, 
             # --- END NEW OUTPUT FIELD ---
-            "closest_known_idx": global_closest_idx, # Keeping for debugging/completeness
-            "closest_known_seq": df['sequence'].iloc[global_closest_idx]
+            # "closest_known_idx": global_closest_idx, # Keeping for debugging/completeness
+            # "closest_known_seq": df['sequence'].iloc[global_closest_idx]
         })
         
     return cards

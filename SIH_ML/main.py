@@ -61,21 +61,33 @@ def main():
         print("\n--- Pipeline Results ---")
         novel_count = len([c for c in cluster_labels if c == -1])
         
-        print(f"Total Execution Time (Clustering & Metrics): {end_time - start_time:.2f} seconds.")
-        print(f"Novel species discovered (cluster -1): {novel_count}")
-        
-        if novel_count > 0:
-            print("\nTop Novel Taxa Summary:")
-            for i, card in enumerate(novel_species_cards[:3]):
-                # --- MODIFIED PRINT STATEMENT ---
-                print(f"  {i+1}. ID: {card['id']}, Novelty Confidence: {card['confidence']}%, Closest Similarity: {card['similarity']}%, ClosEST KNOWN SPECIES: {card['closest_known_species']}")
-                # --- END MODIFIED PRINT STATEMENT ---
-        else:
-            print("No novel species found.")
-            
-    elif not create_tfidf_embeddings:
-        print("\nERROR: Cannot run. Please provide 'feature_extraction.py' file.")
+        #modified this part to return the results as a dictionary so Flask can handle them.
 
+        results = {
+            "execution_time": end_time - start_time,
+            "novel_species_count": novel_count,
+            "novel_species_cards": novel_species_cards
+        }
+        
+        print("\n--- Pipeline Results ---")
+        print(results)
+
+        # print(f"Total Execution Time (Clustering & Metrics): {end_time - start_time:.2f} seconds.")
+        # print(f"Novel species discovered (cluster -1): {novel_count}")
+        
+        # if novel_count > 0:
+        #     print("\nTop Novel Taxa Summary:")
+        #     for i, card in enumerate(novel_species_cards[:3]):
+        #         # --- MODIFIED PRINT STATEMENT ---
+        #         print(f"  {i+1}. ID: {card['id']}, Novelty Confidence: {card['confidence']}%, Closest Similarity: {card['similarity']}%, ClosEST KNOWN SPECIES: {card['closest_known_species']}")
+        #         # --- END MODIFIED PRINT STATEMENT ---
+        # else:
+        #     print("No novel species found.")
+            
+    # elif not create_tfidf_embeddings:
+    #     print("\nERROR: Cannot run. Please provide 'feature_extraction.py' file.")
+    return results
 
 if __name__ == "__main__":
-    main()
+    output=main()
+    print("Final output:", output)
